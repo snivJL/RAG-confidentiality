@@ -54,10 +54,9 @@ async function main() {
   const payloadBase: Record<string, any> = {
     docId: dropboxId,
     offset: 1,
+    rolesAllowed: rolesAllowed ?? [],
+    projects: projects ?? [],
   };
-
-  if (rolesAllowed.length) payloadBase.rolesAllowed = rolesAllowed;
-  if (projects.length) payloadBase.projects = projects;
 
   await qdrant.upsert("chunks", {
     wait: true,

@@ -43,10 +43,8 @@ export async function POST(req: NextRequest) {
         return `[[${idx + 1}]] ${p.content}`;
       })
       .join("\n---\n");
-
     /* 5. chat completion */
     const prompt = TEMPLATES[template]({ context, question });
-    console.log(prompt);
     const chat = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],

@@ -4,7 +4,7 @@ import { qdrant } from "./vector-store";
 export async function semanticSearch(
   question: string,
   userRole = "Partner",
-  projects = [""]
+  projects?: string[]
 ) {
   console.log(userRole, projects);
   const [{ embedding }] = (
@@ -14,17 +14,16 @@ export async function semanticSearch(
     })
   ).data;
 
-  // 2️⃣ Build the filter.
-  // const filter = buildAccessFilter([userRole], projects);
+  const filter = buildAccessFilter([userRole], projects);
 
-  // 3️⃣ Call the Query API.  Types match the TS examples in the docs. :contentReference[oaicite:2]{index=2}
-  const unfiltered = await qdrant.query("chunks", {
+  const filtered = await qdrant.query("chunks", {
     query: embedding,
     limit: 5,
+    filter,
     with_payload: true,
   });
 
-  return unfiltered; // Array<Point>
+  return filtered;
 }
 
 /**
@@ -38,19 +37,44 @@ export async function semanticSearch(
  */
 export const buildAccessFilter = (
   roles: string[], // e.g. ['Partner']
-  projects: string[] | null // null  ⇢ user has no projects
-) => ({
-  must: [
-    {
-      should: [
-        { key: "rolesAllowed", match: { any: roles } }, // ← Match Any  :contentReference[oaicite:0]{index=0}
-        { key: "rolesAllowed", is_empty: true },
-      ],
-    },
-    {
-      should: projects?.length
-        ? [{ key: "projects", match: { any: projects } }]
-        : [{ key: "projects", is_empty: true }],
-    },
-  ],
-});
+  projects?: string[] // undefined ⇒ user has no projects
+) => {
+  // 1️⃣ Public points: both ACL fields empty/missing
+  const publicBranch = {
+    must: [
+      { is_empty: { key: "rolesAllowed" } },
+      { is_empty: { key: "projects" } },
+    ],
+  };
+
+  // 2️⃣ Scoped points: role OK AND project OK
+  const scopedBranch = {
+    must: [
+      {
+        // rolesAllowed must either include one of the user's roles, or be empty
+        should: [
+          { key: "rolesAllowed", match: { any: roles } },
+          { is_empty: { key: "rolesAllowed" } },
+        ],
+      },
+      {
+        // projects must either include one of the user's projects, or be empty
+        should:
+          projects && projects.length > 0
+            ? [
+                { key: "projects", match: { any: projects } },
+                { is_empty: { key: "projects" } },
+              ]
+            : [
+                // if user has no projects, still allow public (empty) but not scoped
+                { is_empty: { key: "projects" } },
+              ],
+      },
+    ],
+  };
+
+  // Top‐level OR: public OR scoped
+  return {
+    should: [publicBranch, scopedBranch],
+  };
+};

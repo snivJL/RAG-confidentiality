@@ -4,14 +4,16 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { signOut } from "next-auth/react";
 import { motion } from "framer-motion";
-import { MessageSquare, User, LogOut, LogIn } from "lucide-react";
+import { User, LogOut, LogIn } from "lucide-react";
 import type { Session } from "next-auth";
+import Image from "next/image";
 
 interface HeaderClientProps {
   session: Session | null;
 }
 
 export function HeaderClient({ session }: HeaderClientProps) {
+  console.log(session);
   return (
     <motion.header
       initial={{ y: -100, opacity: 0 }}
@@ -27,21 +29,13 @@ export function HeaderClient({ session }: HeaderClientProps) {
             whileTap={{ scale: 0.95 }}
             className="flex items-center gap-2"
           >
-            <motion.div
-              animate={{
-                rotate: [0, 10, -10, 0],
-                scale: [1, 1.1, 1],
-              }}
-              transition={{
-                duration: 2,
-                repeat: Number.POSITIVE_INFINITY,
-                repeatType: "reverse",
-                ease: "easeInOut",
-              }}
-              className="p-2 rounded-xl bg-gradient-to-br from-primary to-primary/80 text-primary-foreground shadow-lg"
-            >
-              <MessageSquare className="h-5 w-5" />
-            </motion.div>
+            <Image
+              src="/logo-sm.svg"
+              height={64}
+              width={64}
+              priority
+              alt="logo korefocus small"
+            />
             <div className="flex flex-col">
               <span className="text-lg font-bold bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
                 Korefocus RAG Demo
@@ -66,9 +60,16 @@ export function HeaderClient({ session }: HeaderClientProps) {
                 <div className="w-6 h-6 rounded-full bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center">
                   <User className="h-3 w-3 text-primary-foreground" />
                 </div>
-                <span className="text-sm font-medium text-foreground">
-                  {session.user.email}
-                </span>
+                <div className="flex flex-col">
+                  <span className="text-sm font-medium text-foreground">
+                    {session.user.email}
+                  </span>
+                  {session.user.roles?.[0] && (
+                    <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">
+                      {session.user.roles[0]}
+                    </span>
+                  )}
+                </div>
               </div>
 
               <motion.div
