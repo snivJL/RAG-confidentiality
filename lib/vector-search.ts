@@ -1,12 +1,17 @@
 import { openai } from "./openai";
 import { qdrant } from "./vector-store";
 
-export async function semanticSearch(
+const DEFAULT_LIMIT = 5;
+const MIN_SCORE = 0.3;
+
+export async function semanticSearchWithAcl(
   question: string,
-  userRole = "Partner",
-  projects?: string[]
+  roles: string[],
+  projects?: string[],
+  limit = DEFAULT_LIMIT,
+  minScore = MIN_SCORE
 ) {
-  console.log(userRole, projects);
+  // 1️⃣ get the embedding
   const [{ embedding }] = (
     await openai.embeddings.create({
       model: "text-embedding-3-small",
@@ -14,16 +19,28 @@ export async function semanticSearch(
     })
   ).data;
 
-  const filter = buildAccessFilter([userRole], projects);
-
-  const filtered = await qdrant.query("chunks", {
+  // 2️⃣ search _all_ points, no filter
+  const allResp = await qdrant.query("chunks", {
     query: embedding,
-    limit: 5,
-    filter,
+    limit,
     with_payload: true,
+    score_threshold: minScore,
   });
 
-  return filtered;
+  // 3️⃣ search only _accessible_ points
+  const aclFilter = buildAccessFilter(roles, projects);
+  const accessResp = await qdrant.query("chunks", {
+    query: embedding,
+    limit,
+    filter: aclFilter,
+    with_payload: true,
+    score_threshold: minScore,
+  });
+
+  return {
+    all: allResp.points,
+    accessible: accessResp.points,
+  };
 }
 
 /**
@@ -40,6 +57,7 @@ export const buildAccessFilter = (
   projects?: string[] // undefined ⇒ user has no projects
 ) => {
   // 1️⃣ Public points: both ACL fields empty/missing
+
   const publicBranch = {
     must: [
       { is_empty: { key: "rolesAllowed" } },

@@ -47,7 +47,7 @@ async function main() {
   });
 
   /* 4. Upsert to Qdrant */
-  const rolesAllowed: string[] = [];
+  const rolesAllowed: string[] = ["Partner"];
   const projects: string[] = [];
 
   // payload builder

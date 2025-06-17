@@ -84,19 +84,21 @@ model UserProject {
 }
 
 model Document {
-  id           String   @id // dropbox file id
-  title        String
-  storagePath  String
-  ownerEmail   String
-  rolesAllowed String[]
-  projects     String[]
-  createdAt    DateTime @default(now())
+  id            String   @id // dropbox file id
+  title         String
+  storagePath   String
+  ownerEmail    String
+  rolesAllowed  String[]
+  projects      String[]
+  emailsAllowed String[] @default([])
+  createdAt     DateTime @default(now())
 }
 
 model AccessRequest {
-  id         Int      @id @default(autoincrement())
-  userEmail  String
-  documentId String
-  status     String // "pending" | "approved"
-  createdAt  DateTime @default(now())
+  id             String    @id @default(uuid())
+  docId          String
+  requestorEmail String
+  status         String // pending | approved | denied
+  createdAt      DateTime  @default(now())
+  decidedAt      DateTime?
 }

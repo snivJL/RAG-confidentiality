@@ -12,10 +12,12 @@ export function ChatMessage({
   role,
   content,
   index = 0,
+  actions,
 }: {
   role: "user" | "ai";
   content: string;
   index?: number;
+  actions?: React.ReactNode;
 }) {
   const [copied, setCopied] = useState(false);
   const isUser = role === "user";
@@ -111,6 +113,9 @@ export function ChatMessage({
             >
               {content}
             </ReactMarkdown>
+            {actions && (
+              <div className="mt-3 flex flex-wrap gap-2">{actions}</div>
+            )}
           </div>
 
           {/* Copy button */}

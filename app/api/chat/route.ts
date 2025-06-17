@@ -1,79 +1,109 @@
+// src/app/api/chat/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { openai } from "@/lib/openai";
-import { semanticSearch } from "@/lib/vector-search";
+import { semanticSearchWithAcl } from "@/lib/vector-search";
 import { prisma } from "@/lib/prisma";
 import { TEMPLATES } from "@/lib/templates";
 
 export async function POST(req: NextRequest) {
   try {
-    /* 1. auth */
+    // 1️⃣ Authenticate
     const session = await getServerSession(authOptions);
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    /* 2. parse body */
+    // 2️⃣ Parse body
     const { question, template = "plain" } = (await req.json()) as {
       question: string;
       template?: keyof typeof TEMPLATES;
     };
 
-    /* 3. semantic search */
-    const hits = await semanticSearch(
+    // 3️⃣ Semantic search (all vs accessible)
+    const { all, accessible } = await semanticSearchWithAcl(
       question,
-      session.user.roles[0],
+      session.user.roles,
       session.user.projects
     );
 
-    if (!hits.points) {
-      return NextResponse.json({ answer: "No results." });
+    // 3a️⃣ If *no* documents at all match, bail early
+    if (all.length === 0) {
+      return NextResponse.json(
+        { answer: "No results from the API." },
+        { status: 200 }
+      );
     }
 
-    /* 4. build context from payload */
-    const docIds = new Set<string>();
-    const context = hits.points
-      .map((h, idx) => {
-        const p = h.payload;
-        if (!p) {
-          throw new Error("Payload can't be retrieved");
-        }
-        docIds.add(p.docId as string);
-        return `[[${idx + 1}]] ${p.content}`;
-      })
+    // 4️⃣ Compute hidden **documents** by docId (not points)
+    const allDocIds = new Set(all.map((p) => p.payload!.docId as string));
+    const accessibleDocIds = new Set(
+      accessible.map((p) => p.payload!.docId as string)
+    );
+    const hiddenDocIds = [...allDocIds].filter(
+      (id) => !accessibleDocIds.has(id)
+    );
+
+    // 5️⃣ Build RAG context from accessible chunks only
+    const context = accessible
+      .map((hit, i) => `[[${i + 1}]] ${hit.payload!.content}`)
       .join("\n---\n");
-    /* 5. chat completion */
+
+    // 6️⃣ Ask the LLM
     const prompt = TEMPLATES[template]({ context, question });
     const chat = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
     });
+    let answer = chat.choices[0].message.content ?? "";
 
-    /* 6. load citation metadata */
-    const docs = await prisma.document.findMany({
-      where: { id: { in: Array.from(docIds) } },
+    // 7️⃣ If any docs were hidden, look up their owners & append a note
+    let hidden: { docId: string; ownerEmail: string }[] = [];
+    if (hiddenDocIds.length) {
+      const docs = await prisma.document.findMany({
+        where: { id: { in: hiddenDocIds } },
+        select: { id: true, ownerEmail: true },
+      });
+      hidden = docs.map((d) => ({
+        docId: d.id,
+        ownerEmail: d.ownerEmail,
+      }));
+
+      const uniqueEmails = Array.from(
+        new Set(docs.map((d) => d.ownerEmail))
+      ).join(", ");
+      answer += `
+
+**Note:** There ${hiddenDocIds.length > 1 ? "are" : "is"} ${
+        hiddenDocIds.length
+      } additional document${hiddenDocIds.length > 1 ? "s" : ""} relevant to your question that you don’t have access to.  
+Please contact **${uniqueEmails}** to request access.`;
+    }
+
+    // 8️⃣ Fetch citations for accessible docs
+    const visibleDocs = await prisma.document.findMany({
+      where: { id: { in: [...accessibleDocIds] } },
       select: { id: true, title: true },
     });
 
+    // 9️⃣ Return structured payload
     return NextResponse.json({
-      answer: chat.choices[0].message.content ?? "",
-      citations: docs.map((d, i) => ({
+      answer,
+      citations: visibleDocs.map((d, i) => ({
         n: i + 1,
         title: d.title,
         url: `/api/doc/${d.id}`,
       })),
+      hidden,
     });
   } catch (err: unknown) {
     console.error("[/api/chat] Uncaught error:", err);
 
     let message = "Unexpected error during chat";
-
     if (isOpenAIError(err)) {
-      // now safe to access the nested property
       message = err.data.status.error;
     } else if (err instanceof Error) {
-      // built-in Error type
       message = err.message;
     }
 
@@ -95,6 +125,5 @@ function isOpenAIError(e: unknown): e is OpenAIError {
   if (typeof d !== "object" || d === null) return false;
   const s = (d as Record<string, unknown>).status;
   if (typeof s !== "object" || s === null) return false;
-  const err = (s as Record<string, unknown>).error;
-  return typeof err === "string";
+  return typeof (s as Record<string, unknown>).error === "string";
 }
