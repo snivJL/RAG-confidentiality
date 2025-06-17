@@ -1,62 +1,56 @@
-import { qdrant } from "@/lib/vector-store";
+import { openai } from "./openai";
+import { qdrant } from "./vector-store";
+
+export async function semanticSearch(
+  question: string,
+  userRole = "Partner",
+  projects = [""]
+) {
+  console.log(userRole, projects);
+  const [{ embedding }] = (
+    await openai.embeddings.create({
+      model: "text-embedding-3-small",
+      input: [question],
+    })
+  ).data;
+
+  // 2️⃣ Build the filter.
+  // const filter = buildAccessFilter([userRole], projects);
+
+  // 3️⃣ Call the Query API.  Types match the TS examples in the docs. :contentReference[oaicite:2]{index=2}
+  const unfiltered = await qdrant.query("chunks", {
+    query: embedding,
+    limit: 5,
+    with_payload: true,
+  });
+
+  return unfiltered; // Array<Point>
+}
 
 /**
- * • embedding       – 1536-dim query vector from OpenAI
- * • userRoles       – e.g. ["Partner"]
- * • userProjects    – e.g. ["pharma-fund-A"]
- * • k               – how many chunks you want back
+ * Build a filter like:
+ * {
+ *   must: [
+ *     { should: [ {key:'rolesAllowed', match:{any:['Partner']}}, {key:'rolesAllowed', is_empty:true} ] },
+ *     { should: [ {key:'projects', is_empty:true} ] }
+ *   ]
+ * }
  */
-export async function searchChunks(
-  embedding: number[],
-  userRoles: string[],
-  userProjects: string[],
-  k = 8
-) {
-  /* ──────────────────────────────────────────────────────────
-     Build ONE Qdrant filter object that enforces confidentiality
-     ────────────────────────────────────────────────────────── */
-
-  const must: any[] = []; // top-level AND list
-
-  /* ---------- 1. Role ACL block ---------- */
-  if (userRoles.length) {
-    // User HAS roles → allow chunks that are either public OR overlap
-    must.push({
+export const buildAccessFilter = (
+  roles: string[], // e.g. ['Partner']
+  projects: string[] | null // null  ⇢ user has no projects
+) => ({
+  must: [
+    {
       should: [
-        { key: "rolesAllowed", match: { any: userRoles } }, // overlap roles
-        { key: "rolesAllowed", is_empty: true }, // field missing  → public
+        { key: "rolesAllowed", match: { any: roles } }, // ← Match Any  :contentReference[oaicite:0]{index=0}
+        { key: "rolesAllowed", is_empty: true },
       ],
-    });
-  } else {
-    // User has NO roles → only allow public chunks
-    must.push({ key: "rolesAllowed", is_empty: true });
-  }
-
-  /* ---------- 2. Project ACL block ---------- */
-  if (userProjects.length) {
-    must.push({
-      should: [
-        { key: "projects", match: { any: userProjects } },
-        { key: "projects", is_empty: true },
-      ],
-    });
-  } else {
-    must.push({ key: "projects", is_empty: true });
-  }
-
-  /* Combine into final filter */
-  const filter = { must }; // { must: [role-block, project-block] }
-
-  if (process.env.NODE_ENV === "development") {
-    console.log("Vector Search Filter:", JSON.stringify(filter, null, 2));
-  }
-
-  /* ──────────────────────────────────────────────────────────
-     Execute search.  Returns an array of { id, payload, score }
-     ────────────────────────────────────────────────────────── */
-  return qdrant.search("chunks", {
-    vector: embedding,
-    limit: k,
-    filter,
-  });
-}
+    },
+    {
+      should: projects?.length
+        ? [{ key: "projects", match: { any: projects } }]
+        : [{ key: "projects", is_empty: true }],
+    },
+  ],
+});

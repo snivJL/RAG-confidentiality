@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { openai } from "@/lib/openai";
-import { searchChunks } from "@/lib/vector-search";
+import { semanticSearch } from "@/lib/vector-search";
 import { prisma } from "@/lib/prisma";
 import { TEMPLATES } from "@/lib/templates";
 
@@ -14,47 +14,45 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    /* 2. body + embed */
+    /* 2. parse body */
     const { question, template = "plain" } = (await req.json()) as {
       question: string;
       template?: keyof typeof TEMPLATES;
     };
-    const embed = await openai.embeddings.create({
-      model: "text-embedding-3-small",
-      input: question,
-    });
-    const queryVec = embed.data[0].embedding;
-    console.log(session.user.roles, session.user.projects);
-    /* 3. vector search */
-    const hits = await searchChunks(
-      queryVec,
-      session.user.roles,
-      session.user.projects,
-      8
+
+    /* 3. semantic search */
+    const hits = await semanticSearch(
+      question,
+      session.user.roles[0],
+      session.user.projects
     );
 
-    console.log("hits", hits);
+    if (!hits.points) {
+      return NextResponse.json({ answer: "No results." });
+    }
 
-    if (!hits.length) return NextResponse.json({ answer: "No results." });
-
-    /* 4. build context */
+    /* 4. build context from payload */
     const docIds = new Set<string>();
-    const context = hits
+    const context = hits.points
       .map((h, idx) => {
-        const p = h.payload as any;
+        const p = h.payload;
+        if (!p) {
+          throw new Error("Payload can't be retrieved");
+        }
         docIds.add(p.docId as string);
         return `[[${idx + 1}]] ${p.content}`;
       })
       .join("\n---\n");
 
-    /* 5. LLM */
+    /* 5. chat completion */
     const prompt = TEMPLATES[template]({ context, question });
+    console.log(prompt);
     const chat = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
     });
 
-    /* 6. citations */
+    /* 6. load citation metadata */
     const docs = await prisma.document.findMany({
       where: { id: { in: Array.from(docIds) } },
       select: { id: true, title: true },
@@ -68,14 +66,37 @@ export async function POST(req: NextRequest) {
         url: `/api/doc/${d.id}`,
       })),
     });
-  } catch (err: any) {
-    /* ------ Better error output ------ */
+  } catch (err: unknown) {
     console.error("[/api/chat] Uncaught error:", err);
-    console.error("HEEEERE", JSON.stringify(err?.data));
-    const msg =
-      err?.data?.status?.error ??
-      err?.message ??
-      "Unexpected error during chat";
-    return NextResponse.json({ error: msg }, { status: 500 });
+
+    let message = "Unexpected error during chat";
+
+    if (isOpenAIError(err)) {
+      // now safe to access the nested property
+      message = err.data.status.error;
+    } else if (err instanceof Error) {
+      // built-in Error type
+      message = err.message;
+    }
+
+    return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+interface OpenAIError {
+  data: {
+    status: {
+      error: string;
+    };
+  };
+}
+
+function isOpenAIError(e: unknown): e is OpenAIError {
+  if (typeof e !== "object" || e === null) return false;
+  const d = (e as Record<string, unknown>).data;
+  if (typeof d !== "object" || d === null) return false;
+  const s = (d as Record<string, unknown>).status;
+  if (typeof s !== "object" || s === null) return false;
+  const err = (s as Record<string, unknown>).error;
+  return typeof err === "string";
 }
