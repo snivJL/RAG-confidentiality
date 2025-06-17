@@ -1,0 +1,102 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+//
+// 3.1  NextAuth core tables
+//
+model User {
+  id             String    @id @default(uuid())
+  name           String?
+  email          String?   @unique
+  emailVerified  DateTime?
+  image          String?
+  hashedPassword String?
+
+  accounts Account[]
+  sessions Session[]
+
+  // ---- Custom relations ----
+  roles    UserRole[]
+  projects UserProject[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+//
+// 3.2  Confidentiality models
+//
+model UserRole {
+  id     Int    @id @default(autoincrement())
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  role   String // e.g. "Partner", "Associate"
+
+  @@unique([userId, role])
+}
+
+model UserProject {
+  id        Int    @id @default(autoincrement())
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  projectId String
+
+  @@unique([userId, projectId])
+}
+
+model Document {
+  id           String   @id // dropbox file id
+  title        String
+  storagePath  String
+  ownerEmail   String
+  rolesAllowed String[]
+  projects     String[]
+  createdAt    DateTime @default(now())
+}
+
+model AccessRequest {
+  id         Int      @id @default(autoincrement())
+  userEmail  String
+  documentId String
+  status     String // "pending" | "approved"
+  createdAt  DateTime @default(now())
+}
