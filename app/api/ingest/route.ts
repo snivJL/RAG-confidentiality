@@ -68,16 +68,34 @@ export async function POST(req: NextRequest) {
 }
 async function processUserDelta(userId: string) {
   console.log(`[ingest] scanning folder for user ${userId}`);
-  let { result } = await dbx.filesListFolder({ path: "", recursive: true });
-  while (true) {
-    const filesToIngest = result.entries.filter(
-      (e) => e[".tag"] === "file"
-    ) as files.FileMetadataReference[];
-    console.log(`[ingest] found ${filesToIngest.length} file(s) in this batch`);
-    await Promise.all(filesToIngest.map(ingestFile));
-    if (!result.has_more) break;
-    ({ result } = await dbx.filesListFolderContinue({ cursor: result.cursor }));
+
+  // 1️⃣ List *all* files once
+  const { result } = await dbx.filesListFolder({ path: "", recursive: true });
+  const fileEntries = result.entries
+    .filter((e) => e[".tag"] === "file")
+    // cast so TS knows we have server_modified
+    .map((e) => e as files.FileMetadataReference & { server_modified: string });
+
+  console.log(`[ingest] found ${fileEntries.length} file(s)`);
+
+  if (fileEntries.length === 0) {
+    console.log("[ingest] no files to ingest");
+    return;
   }
+
+  // 2️⃣ Pick the one with the latest server_modified timestamp
+  let latestFile = fileEntries[0];
+  for (const f of fileEntries) {
+    if (new Date(f.server_modified) > new Date(latestFile.server_modified)) {
+      latestFile = f;
+    }
+  }
+  console.log(
+    `[ingest] ingesting only the newest file: ${latestFile.name} (modified ${latestFile.server_modified})`
+  );
+
+  // 3️⃣ Ingest that single file
+  await ingestFile(latestFile);
 }
 
 async function ingestFile(meta: files.FileMetadataReference) {
