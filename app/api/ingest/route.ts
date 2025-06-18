@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import crypto from "node:crypto";
 import { Dropbox, files } from "dropbox";
 import fetch from "cross-fetch";
-import type { DropboxWebhookPayload } from "@/types/webhook";
+import crypto from "node:crypto";
+import { v5 as uuidv5 } from "uuid";
 
 import { prisma } from "@/lib/prisma";
 import { openai } from "@/lib/openai";
@@ -16,12 +16,10 @@ export const dynamic = "force-dynamic";
 const DROPBOX_APP_SECRET = process.env.DROPBOX_APP_SECRET;
 const DROPBOX_ACCESS_TOKEN = process.env.DROPBOX_ACCESS_TOKEN;
 
-// fail early if env is missing
 if (!DROPBOX_APP_SECRET || !DROPBOX_ACCESS_TOKEN) {
   console.error(
     "[ingest][startup] Missing DROPBOX_APP_SECRET or DROPBOX_ACCESS_TOKEN!"
   );
-  // Note: Next.js will still start, but every POST will now 500.
 }
 
 const dbx = new Dropbox({ accessToken: DROPBOX_ACCESS_TOKEN!, fetch });
@@ -36,53 +34,38 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  try {
-    console.log("[ingest][POST] Received webhook");
-
-    // 1. read the raw body just once
-    const buf = await req.arrayBuffer();
-    const raw = Buffer.from(buf);
-    const bodyStr = raw.toString("utf-8");
-
-    // 2. log the exact payload
-    console.log("[ingest] raw payload:", bodyStr);
-
-    // 3. parse JSON safely
-    let payload: DropboxWebhookPayload;
-    try {
-      payload = JSON.parse(bodyStr);
-    } catch (err) {
-      console.error("[ingest] JSON parse failed:", err);
-      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
-    }
-
-    // 4. extract the Dropbox accounts array
-    const accounts: string[] = payload.list_folder?.accounts ?? [];
-    console.log("[ingest] webhook accounts:", accounts);
-
-    if (!accounts.length) {
-      console.warn("[ingest] no accounts to process—ignoring");
-      return NextResponse.json({ ok: true });
-    }
-
-    // 5. delay a few seconds for large uploads to settle
-    console.log("[ingest] waiting 5s before scanning…");
-    await new Promise((r) => setTimeout(r, 5000));
-
-    // 6. process each account
-    await Promise.all(accounts.map((acct) => processUserDelta(acct)));
-
-    console.log("[ingest] done processing accounts");
-    return NextResponse.json({ ok: true });
-  } catch (err) {
-    console.error("[ingest][POST] Uncaught error:", err);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+  // 1. Read raw body once
+  const raw = Buffer.from(await req.arrayBuffer());
+  const sig = req.headers.get("x-dropbox-signature")!;
+  const calc = crypto
+    .createHmac("sha256", DROPBOX_APP_SECRET!)
+    .update(raw)
+    .digest("hex");
+  if (sig !== calc) {
+    return NextResponse.json({ error: "bad signature" }, { status: 403 });
   }
+
+  // 2. Parse Dropbox payload
+  const { list_folder } = JSON.parse(raw.toString()) as {
+    list_folder: { accounts: string[] };
+  };
+  const accounts = list_folder.accounts || [];
+
+  // 3. Schedule the real work asynchronously
+  for (const acct of accounts) {
+    setImmediate(async () => {
+      try {
+        // Your existing scan → download → extract → chunk → upsert logic
+        await processUserDelta(acct);
+      } catch (err) {
+        console.error("[ingest][async] error processing account", acct, err);
+      }
+    });
+  }
+
+  // 4. Respond immediately so Dropbox won't retry
+  return NextResponse.json({ ok: true });
 }
-// Helper functions unchanged…
 async function processUserDelta(userId: string) {
   console.log(`[ingest] scanning folder for user ${userId}`);
   let { result } = await dbx.filesListFolder({ path: "", recursive: true });
@@ -129,13 +112,12 @@ async function ingestFile(meta: files.FileMetadataReference) {
       id: dropboxId,
       title: name,
       storagePath: path_lower!,
-      ownerEmail: "partner@example.com",
+      ownerEmail: "thomas@korefocus.com",
       rolesAllowed: [],
       projects: [],
     },
   });
 
-  // chunk & embed
   const chunks = chunkText(raw, 1000);
   console.log("[ingest] chunked into", chunks.length, "pieces");
   const embeds = await openai.embeddings.create({
@@ -143,19 +125,25 @@ async function ingestFile(meta: files.FileMetadataReference) {
     input: chunks,
   });
 
-  // upsert vectors
+  const NAMESPACE = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
+
   await qdrant.upsert("chunks", {
     wait: true,
     points: chunks.map((content, i) => {
-      const pointId = crypto
-        .createHash("sha1")
-        .update(`${dropboxId}-${i}`)
-        .digest("hex");
+      // deterministically generate a valid UUID
+      const pointId = uuidv5(`${dropboxId}-${i}`, NAMESPACE);
 
       return {
-        id: pointId,
+        id: pointId, // now a proper UUID
         vector: embeds.data[i].embedding,
-        payload: { docId: dropboxId, offset: i, content },
+        payload: {
+          docId: dropboxId,
+          offset: i,
+          content,
+          rolesAllowed: [],
+          projects: [],
+          emailsAllowed: [],
+        },
       };
     }),
   });

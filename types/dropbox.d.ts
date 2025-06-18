@@ -1,3 +1,4 @@
+// types/dropbox.d.ts
 import "dropbox";
 
 declare module "dropbox" {
@@ -11,6 +12,21 @@ declare module "dropbox" {
       fileBinary?: Buffer;
       /** Present on all environments (polyfilled Blob) */
       fileBlob?: Blob;
+    }
+
+    /**
+     * The shape of the result for filesGetTemporaryLink()
+     */
+    interface GetTemporaryLinkResult {
+      /** Temporary URL for downloading or previewing the file */
+      link: string;
+      /** Metadata about the file (e.g., name, id, path_lower) */
+      metadata: {
+        name: string;
+        id: string;
+        path_lower: string;
+        [key: string]: unknown;
+      };
     }
   }
 }

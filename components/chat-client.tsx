@@ -107,7 +107,7 @@ export default function ChatClient() {
         (data.answer ?? "") +
         "\n\n" +
         (data.citations ?? []).map((c) => `[${c.n}](${c.url})`).join(" ");
-
+      console.log("CItations", data.citations);
       setMessages((m) => [...m, { role: "ai", content: answerWithLinks }]);
     } catch (e) {
       console.error(e);

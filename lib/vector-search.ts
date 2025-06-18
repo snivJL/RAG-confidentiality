@@ -2,7 +2,7 @@ import { openai } from "./openai";
 import { qdrant } from "./vector-store";
 
 const DEFAULT_LIMIT = 5;
-const MIN_SCORE = 0.3;
+const MIN_SCORE = 0.5;
 
 export async function semanticSearchWithAcl(
   question: string,
@@ -27,6 +27,7 @@ export async function semanticSearchWithAcl(
     with_payload: true,
     score_threshold: minScore,
   });
+  console.log(allResp.points);
   // 3️⃣ only the points the user may see
   const aclFilter = buildAccessFilter(roles, projects, email);
   const accessResp = await qdrant.query("chunks", {

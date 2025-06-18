@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import { User, Bot, Copy, Check } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 
 /** Renders either a user or AI bubble */
 export function ChatMessage({
@@ -25,6 +26,7 @@ export function ChatMessage({
   const copyToClipboard = async () => {
     await navigator.clipboard.writeText(content);
     setCopied(true);
+    toast("Text copied to clipboard");
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -121,14 +123,15 @@ export function ChatMessage({
           {/* Copy button */}
           {!isUser && (
             <motion.div
-              initial={{ opacity: 0, scale: 0.8 }}
+              initial={{ opacity: 0.5, scale: 0.8 }}
               whileHover={{ opacity: 1, scale: 1 }}
-              className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+              className="absolute bottom-4 right-4 group-hover:opacity-100 transition-opacity duration-200"
             >
               <Button
                 size="sm"
                 variant="secondary"
                 onClick={copyToClipboard}
+                asChild
                 className="h-6 w-6 p-0 rounded-full shadow-md hover:shadow-lg transition-shadow duration-200"
               >
                 <motion.div

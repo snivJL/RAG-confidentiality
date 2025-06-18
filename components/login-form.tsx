@@ -36,7 +36,7 @@ export function LoginForm({
     });
     setLoading(false);
     if (res?.error) alert("Invalid credentials");
-    else window.location.href = "/chat";
+    else window.location.href = "/";
   }
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
@@ -55,7 +55,8 @@ export function LoginForm({
                 <Input
                   id="email"
                   type="email"
-                  placeholder="m@example.com"
+                  placeholder="partner.demo@korefocus.com"
+                  name="email"
                   required
                 />
               </div>
@@ -69,7 +70,7 @@ export function LoginForm({
                     Forgot your password?
                   </a>
                 </div>
-                <Input id="password" type="password" required />
+                <Input id="password" type="password" required name="password" />
               </div>
               <div className="flex flex-col gap-3">
                 <Button type="submit" className="w-full" disabled={loading}>
