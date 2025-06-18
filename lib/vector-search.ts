@@ -2,15 +2,15 @@ import { openai } from "./openai";
 import { qdrant } from "./vector-store";
 
 const DEFAULT_LIMIT = 5;
-const MIN_SCORE = 0.3;
+// const MIN_SCORE = 0.3;
 
 export async function semanticSearchWithAcl(
   question: string,
   roles: string[],
   projects: string[] | undefined,
   email: string,
-  limit = DEFAULT_LIMIT,
-  minScore = MIN_SCORE
+  limit = DEFAULT_LIMIT
+  // minScore = MIN_SCORE
 ) {
   // 1️⃣ get the embedding
   const [{ embedding }] = (
@@ -24,7 +24,7 @@ export async function semanticSearchWithAcl(
     query: embedding,
     limit,
     with_payload: true,
-    score_threshold: minScore,
+    // score_threshold: minScore,
   });
 
   // console.log(allResp.points);
@@ -35,7 +35,7 @@ export async function semanticSearchWithAcl(
     limit,
     filter: aclFilter,
     with_payload: true,
-    score_threshold: minScore,
+    // score_threshold: minScore,
   });
   // console.log(accessResp.points);
 
