@@ -28,6 +28,8 @@ export async function POST(req: NextRequest) {
       session.user.email!
     );
 
+    console.log(all.length, accessible.length);
+
     // 3a️⃣ If *no* documents at all match, bail early
     if (all.length === 0) {
       console.log("NO RESULTS");
@@ -45,16 +47,17 @@ export async function POST(req: NextRequest) {
     const hiddenDocIds = [...allDocIds].filter(
       (id) => !accessibleDocIds.has(id)
     );
+    console.log(accessibleDocIds, hiddenDocIds);
 
     // 5️⃣ Build RAG context from accessible chunks only
     const context = accessible
       .map((hit, i) => `[[${i + 1}]] ${hit.payload!.content}`)
       .join("\n---\n");
     // 6️⃣ Ask the LLM
-
+    console.log(context);
     const prompt = TEMPLATES[template]({ context, question });
     const chat = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o",
       messages: [{ role: "user", content: prompt }],
     });
     let answer = chat.choices[0].message.content ?? "";

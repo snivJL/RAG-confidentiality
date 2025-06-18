@@ -1,10 +1,11 @@
 "use client";
 
-import * as React from "react";
+import type * as React from "react";
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 import { ChatMessage } from "@/components/chat-message";
+import { LoadingMessage } from "@/components/loading-message";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { TemplateSelector } from "@/components/template-selector";
@@ -37,7 +38,7 @@ export default function ChatClient() {
   // scroll on new messages
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, loading]);
 
   async function requestAccess(docId: string, ownerEmail: string) {
     try {
@@ -46,7 +47,7 @@ export default function ChatClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ docId, ownerEmail }),
       });
-      toast(`Requested access from ${ownerEmail}`);
+      toast.success(`Requested access from ${ownerEmail}`);
     } catch (e) {
       toast.error(`Failed to request access: ${String(e)}`);
     }
@@ -55,17 +56,27 @@ export default function ChatClient() {
   async function send() {
     if (!input.trim() || loading) return;
 
-    // push the user msg
-    setMessages((m) => [...m, { role: "user", content: input }]);
+    const userMessage = input.trim();
+
+    // Immediately add user message and show loading
+    setMessages((m) => [...m, { role: "user", content: userMessage }]);
     setInput("");
     setLoading(true);
+
+    // Focus input for better UX
+    setTimeout(() => inputRef.current?.focus(), 100);
 
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: input, template }),
+        body: JSON.stringify({ question: userMessage, template }),
       });
+
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+
       const data = (await res.json()) as {
         answer?: string;
         citations?: { n: number; title: string; url: string }[];
@@ -86,7 +97,7 @@ export default function ChatClient() {
           {
             role: "ai",
             content:
-              "Sorry, I couldn’t find any documents in the knowledge base to answer your query.",
+              "Sorry, I couldn't find any documents in the knowledge base to answer your query.",
           },
         ]);
         return;
@@ -107,10 +118,10 @@ export default function ChatClient() {
         (data.answer ?? "") +
         "\n\n" +
         (data.citations ?? []).map((c) => `[${c.n}](${c.url})`).join(" ");
-      console.log("CItations", data.citations);
+      console.log("Citations", data.citations);
       setMessages((m) => [...m, { role: "ai", content: answerWithLinks }]);
     } catch (e) {
-      console.error(e);
+      console.error("Chat error:", e);
       setMessages((m) => [
         ...m,
         {
@@ -118,9 +129,9 @@ export default function ChatClient() {
           content: "Sorry, I encountered an error. Please try again.",
         },
       ]);
+      toast.error("Failed to send message. Please try again.");
     } finally {
       setLoading(false);
-      inputRef.current?.focus();
     }
   }
 
@@ -137,7 +148,7 @@ export default function ChatClient() {
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto px-4 py-6">
           <AnimatePresence mode="popLayout">
-            {messages.length === 0 && (
+            {messages.length === 0 && !loading && (
               <motion.div
                 key="empty-state"
                 initial={{ opacity: 0, y: 20 }}
@@ -159,7 +170,7 @@ export default function ChatClient() {
               if ("content" in m && m.role !== "system") {
                 return (
                   <ChatMessage
-                    key={idx}
+                    key={`message-${idx}`}
                     role={m.role}
                     content={m.content}
                     index={idx}
@@ -171,14 +182,14 @@ export default function ChatClient() {
               if (m.role === "system" && "hidden" in m) {
                 return (
                   <motion.div
-                    key={idx}
+                    key={`system-${idx}`}
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -10 }}
-                    className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-md mb-4 space-y-2"
+                    className="bg-yellow-50 dark:bg-yellow-900/20 border-l-4 border-yellow-400 p-4 rounded-md mb-4 space-y-2"
                   >
-                    <p className="text-sm text-yellow-800">
-                      You don’t have access to {m.hidden!.length} document
+                    <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                      You don&apos;t have access to {m.hidden!.length} document
                       {m.hidden!.length > 1 ? "s" : ""}.
                     </p>
                     <div className="flex flex-wrap gap-2">
@@ -217,6 +228,9 @@ export default function ChatClient() {
 
               return null;
             })}
+
+            {/* Show loading message when AI is responding */}
+            {loading && <LoadingMessage key="loading-message" />}
           </AnimatePresence>
           <div ref={endRef} />
         </div>

@@ -23,7 +23,7 @@ export function HeaderClient({ session }: HeaderClientProps) {
     >
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
         {/* Brand / Logo */}
-        <Link href="/chat" className="group">
+        <Link href="/" className="group">
           <motion.div
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}

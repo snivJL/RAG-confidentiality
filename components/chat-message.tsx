@@ -24,10 +24,15 @@ export function ChatMessage({
   const isUser = role === "user";
 
   const copyToClipboard = async () => {
-    await navigator.clipboard.writeText(content);
-    setCopied(true);
-    toast("Text copied to clipboard");
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      toast.success("Text copied to clipboard");
+      setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to copy text");
+    }
   };
 
   return (
@@ -41,7 +46,7 @@ export function ChatMessage({
         stiffness: 200,
         damping: 20,
       }}
-      className={`flex ${isUser ? "justify-end" : "justify-start"} mb-6 group`}
+      className={`flex ${isUser ? "justify-end" : "justify-start"} mb-6 group relative`}
     >
       <div
         className={`flex items-start gap-3 max-w-[85%] ${isUser ? "flex-row-reverse" : "flex-row"}`}
@@ -78,10 +83,9 @@ export function ChatMessage({
           />
 
           {/* Content */}
-          <div className="relative z-10">
+          <div className="relative z-10 pr-8">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
-              // className={`prose prose-sm max-w-none ${isUser ? "prose-invert" : "prose-slate dark:prose-invert"}`}
               components={{
                 p: ({ children }) => (
                   <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>
@@ -119,35 +123,35 @@ export function ChatMessage({
               <div className="mt-3 flex flex-wrap gap-2">{actions}</div>
             )}
           </div>
-
-          {/* Copy button */}
-          {!isUser && (
-            <motion.div
-              initial={{ opacity: 0.5, scale: 0.8 }}
-              whileHover={{ opacity: 1, scale: 1 }}
-              className="absolute bottom-4 right-4 group-hover:opacity-100 transition-opacity duration-200"
-            >
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={copyToClipboard}
-                asChild
-                className="h-6 w-6 p-0 rounded-full shadow-md hover:shadow-lg transition-shadow duration-200"
-              >
-                <motion.div
-                  animate={{ scale: copied ? [1, 1.2, 1] : 1 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  {copied ? (
-                    <Check className="h-3 w-3 text-green-600" />
-                  ) : (
-                    <Copy className="h-3 w-3" />
-                  )}
-                </motion.div>
-              </Button>
-            </motion.div>
-          )}
         </motion.div>
+
+        {/* Copy button - positioned outside the message bubble */}
+        {!isUser && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 0.6, scale: 1 }}
+            whileHover={{ opacity: 1, scale: 1.05 }}
+            className="flex-shrink-0 mt-2 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-all duration-200"
+          >
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={copyToClipboard}
+              className="h-8 w-8 p-0 rounded-full hover:bg-muted/80 transition-all duration-200"
+            >
+              <motion.div
+                animate={{ scale: copied ? [1, 1.2, 1] : 1 }}
+                transition={{ duration: 0.2 }}
+              >
+                {copied ? (
+                  <Check className="h-3 w-3 text-green-600" />
+                ) : (
+                  <Copy className="h-3 w-3" />
+                )}
+              </motion.div>
+            </Button>
+          </motion.div>
+        )}
       </div>
     </motion.div>
   );

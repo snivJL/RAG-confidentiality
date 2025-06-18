@@ -20,15 +20,15 @@ export async function semanticSearchWithAcl(
     })
   ).data;
 
-  // 2️⃣ all points (no ACL), with score threshold
   const allResp = await qdrant.query("chunks", {
     query: embedding,
     limit,
     with_payload: true,
     score_threshold: minScore,
   });
-  console.log(allResp.points);
-  // 3️⃣ only the points the user may see
+
+  // console.log(allResp.points);
+
   const aclFilter = buildAccessFilter(roles, projects, email);
   const accessResp = await qdrant.query("chunks", {
     query: embedding,
@@ -37,6 +37,7 @@ export async function semanticSearchWithAcl(
     with_payload: true,
     score_threshold: minScore,
   });
+  // console.log(accessResp.points);
 
   return {
     all: allResp.points,
@@ -57,7 +58,7 @@ export const buildAccessFilter = (
   email?: string
 ) => {
   const branches = [];
-
+  console.log(roles, projects, email);
   // 1️⃣ Public docs: no ACL whatsoever
   branches.push({
     must: [
