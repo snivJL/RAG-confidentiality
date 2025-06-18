@@ -119,11 +119,21 @@ async function ingestFile(meta: files.FileMetadataReference) {
   });
 
   const chunks = chunkText(raw, 1000);
-  console.log("[ingest] chunked into", chunks.length, "pieces");
-  const embeds = await openai.embeddings.create({
-    model: "text-embedding-3-small",
-    input: chunks,
-  });
+  const BATCH_SIZE = 200;
+  const allEmbeddings: number[][] = [];
+
+  for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+    const batch = chunks.slice(i, i + BATCH_SIZE);
+    console.log(
+      `[ingest] embedding batch ${i / BATCH_SIZE + 1} (${batch.length} chunks)`
+    );
+    const resp = await openai.embeddings.create({
+      model: "text-embedding-3-small",
+      input: batch,
+    });
+    // resp.data is an array of { embedding: number[] }
+    allEmbeddings.push(...resp.data.map((d) => d.embedding));
+  }
 
   const NAMESPACE = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
 
@@ -135,7 +145,7 @@ async function ingestFile(meta: files.FileMetadataReference) {
 
       return {
         id: pointId, // now a proper UUID
-        vector: embeds.data[i].embedding,
+        vector: allEmbeddings[i],
         payload: {
           docId: dropboxId,
           offset: i,

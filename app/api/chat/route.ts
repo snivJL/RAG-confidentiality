@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
         where: { id: { in: hiddenDocIds } },
         select: { id: true, ownerEmail: true },
       });
-      hidden = docs.map((d) => ({
+      hidden = docs.map((d: { id: string; ownerEmail: string }) => ({
         docId: d.id,
         ownerEmail: d.ownerEmail,
       }));

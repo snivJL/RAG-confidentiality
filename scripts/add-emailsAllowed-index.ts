@@ -3,6 +3,9 @@ import "dotenv/config";
 import { qdrant } from "../lib/vector-store";
 
 (async () => {
+  // await qdrant.delete("chunks", {
+  //   filter: { must: [] },
+  // });
   await qdrant
     .createPayloadIndex("chunks", {
       field_name: "emailsAllowed",
