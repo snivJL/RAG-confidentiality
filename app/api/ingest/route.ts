@@ -81,81 +81,93 @@ async function processUserDelta(userId: string) {
 }
 
 async function ingestFile(meta: files.FileMetadataReference) {
-  console.log("[ingest] ingesting file:", meta.path_lower);
-  const { id: dropboxId, name, path_lower } = meta;
-  // download
-  const dl = await dbx.filesDownload({ path: path_lower! });
-  const result = dl.result as files.FileMetadataReference;
+  try {
+    console.log("[ingest] ingesting file:", meta.path_lower);
+    const { id: dropboxId, name, path_lower } = meta;
 
-  let buf: Buffer;
-  if (result.fileBinary) {
-    buf = result.fileBinary;
-  } else if (result.fileBlob) {
-    const ab = await result.fileBlob.arrayBuffer();
-    buf = Buffer.from(ab);
-  } else {
-    throw new Error(
-      "Dropbox download did not return either fileBinary or fileBlob"
-    );
-  }
-  console.log("[ingest] downloaded bytes:", buf.length);
+    // ─── Download ──────────────────────────────────────
+    const dl = await dbx.filesDownload({ path: path_lower! });
+    const result = dl.result as files.FileMetadataReference;
 
-  // extract
-  const raw = await extractText(name, buf);
-  console.log(`[ingest] extracted ${raw.length} chars from ${name}`);
+    let buf: Buffer;
+    if (result.fileBinary) {
+      buf = result.fileBinary;
+    } else if (result.fileBlob) {
+      const ab = await result.fileBlob.arrayBuffer();
+      buf = Buffer.from(ab);
+    } else {
+      throw new Error("Dropbox download did not return fileBinary or fileBlob");
+    }
+    console.log("[ingest] downloaded bytes:", buf.length);
 
-  // upsert doc
-  await prisma.document.upsert({
-    where: { id: dropboxId },
-    update: { title: name, storagePath: path_lower! },
-    create: {
-      id: dropboxId,
-      title: name,
-      storagePath: path_lower!,
-      ownerEmail: "thomas@korefocus.com",
-      rolesAllowed: [],
-      projects: [],
-    },
-  });
+    // ─── Extract text ─────────────────────────────────
+    const raw = await extractText(name, buf);
+    console.log(`[ingest] extracted ${raw.length} chars from ${name}`);
 
-  const chunks = chunkText(raw, 1000);
-  const BATCH_SIZE = 200;
-  const allEmbeddings: number[][] = [];
-
-  for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
-    const batch = chunks.slice(i, i + BATCH_SIZE);
-    console.log(
-      `[ingest] embedding batch ${i / BATCH_SIZE + 1} (${batch.length} chunks)`
-    );
-    const resp = await openai.embeddings.create({
-      model: "text-embedding-3-small",
-      input: batch,
+    // ─── Upsert document metadata ─────────────────────
+    await prisma.document.upsert({
+      where: { id: dropboxId },
+      update: { title: name, storagePath: path_lower! },
+      create: {
+        id: dropboxId,
+        title: name,
+        storagePath: path_lower!,
+        ownerEmail: "thomas@korefocus.com",
+        rolesAllowed: [],
+        projects: [],
+      },
     });
-    // resp.data is an array of { embedding: number[] }
-    allEmbeddings.push(...resp.data.map((d) => d.embedding));
+
+    // ─── Chunk the text ──────────────────────────────
+    const chunks = chunkText(raw, 1000);
+    console.log("[ingest] chunked into", chunks.length, "pieces");
+
+    // ─── Embed in batches ────────────────────────────
+    const BATCH_SIZE = 200;
+    const allEmbeddings: number[][] = [];
+    for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+      const batch = chunks.slice(i, i + BATCH_SIZE);
+      const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+      console.log(
+        `[ingest] embedding batch ${batchNum} (${batch.length} chunks)`
+      );
+      const resp = await openai.embeddings.create({
+        model: "text-embedding-3-small",
+        input: batch,
+      });
+      allEmbeddings.push(...resp.data.map((d) => d.embedding));
+    }
+
+    // ─── Prepare all points ──────────────────────────
+    const NAMESPACE = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
+    const points = chunks.map((content, idx) => ({
+      id: uuidv5(`${dropboxId}-${idx}`, NAMESPACE),
+      vector: allEmbeddings[idx],
+      payload: {
+        docId: dropboxId,
+        offset: idx,
+        content,
+        rolesAllowed: [],
+        projects: [],
+        emailsAllowed: [],
+      },
+    }));
+
+    // ─── Upsert in batches ───────────────────────────
+    for (let i = 0; i < points.length; i += BATCH_SIZE) {
+      const batchPoints = points.slice(i, i + BATCH_SIZE);
+      const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+      console.log(
+        `[ingest] upserting batch ${batchNum} (${batchPoints.length} points)`
+      );
+      await qdrant.upsert("chunks", {
+        wait: true,
+        points: batchPoints,
+      });
+    }
+
+    console.log(`[ingest] upserted all ${points.length} vectors to Qdrant`);
+  } catch (error) {
+    console.error("[ingest] error:", error);
   }
-
-  const NAMESPACE = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
-
-  await qdrant.upsert("chunks", {
-    wait: true,
-    points: chunks.map((content, i) => {
-      // deterministically generate a valid UUID
-      const pointId = uuidv5(`${dropboxId}-${i}`, NAMESPACE);
-
-      return {
-        id: pointId, // now a proper UUID
-        vector: allEmbeddings[i],
-        payload: {
-          docId: dropboxId,
-          offset: i,
-          content,
-          rolesAllowed: [],
-          projects: [],
-          emailsAllowed: [],
-        },
-      };
-    }),
-  });
-  console.log("[ingest] upserted", chunks.length, "vectors to Qdrant");
 }
