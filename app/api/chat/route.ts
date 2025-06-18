@@ -25,11 +25,13 @@ export async function POST(req: NextRequest) {
     const { all, accessible } = await semanticSearchWithAcl(
       question,
       session.user.roles,
-      session.user.projects
+      session.user.projects,
+      session.user.email!
     );
 
     // 3a️⃣ If *no* documents at all match, bail early
     if (all.length === 0) {
+      console.log("NO RESULTS");
       return NextResponse.json(
         { answer: "No results from the API." },
         { status: 200 }
@@ -49,15 +51,15 @@ export async function POST(req: NextRequest) {
     const context = accessible
       .map((hit, i) => `[[${i + 1}]] ${hit.payload!.content}`)
       .join("\n---\n");
-
     // 6️⃣ Ask the LLM
+
     const prompt = TEMPLATES[template]({ context, question });
     const chat = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
     });
     let answer = chat.choices[0].message.content ?? "";
-
+    console.log("ANSWER", answer);
     // 7️⃣ If any docs were hidden, look up their owners & append a note
     let hidden: { docId: string; ownerEmail: string }[] = [];
     if (hiddenDocIds.length) {

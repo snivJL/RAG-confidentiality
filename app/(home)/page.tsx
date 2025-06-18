@@ -7,7 +7,7 @@ export default async function Home() {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
   return (
-    <div className="flex h-[calc(100dvh_-_64px)] flex-col">
+    <div className="flex h-[calc(100dvh_-_96px)] flex-col">
       <ChatClient />
     </div>
   );

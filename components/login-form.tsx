@@ -72,8 +72,8 @@ export function LoginForm({
                 <Input id="password" type="password" required />
               </div>
               <div className="flex flex-col gap-3">
-                <Button type="submit" className="w-full">
-                  Login
+                <Button type="submit" className="w-full" disabled={loading}>
+                  {loading ? "Signing in..." : "Sign in"}
                 </Button>
               </div>
             </div>

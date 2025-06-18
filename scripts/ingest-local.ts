@@ -56,6 +56,7 @@ async function main() {
     offset: 1,
     rolesAllowed: rolesAllowed ?? [],
     projects: projects ?? [],
+    emailsAllowed: [],
   };
 
   await qdrant.upsert("chunks", {

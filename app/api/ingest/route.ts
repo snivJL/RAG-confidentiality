@@ -1,61 +1,66 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "node:crypto";
-import { Dropbox } from "dropbox";
+import { Dropbox, files } from "dropbox";
 import pdfParse from "pdf-parse";
 import mammoth from "mammoth";
+import * as PPTX from "pptx-parser";
+import { MSGReader } from "msgreader";
+
 import { prisma } from "@/lib/prisma";
 import { openai } from "@/lib/openai";
 import { qdrant } from "@/lib/vector-store";
 import { chunkText } from "@/lib/chunk-text";
+import { NodeFileDownloadResult } from "@/types/files";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const dbx = new Dropbox({ accessToken: process.env.DROPBOX_ACCESS_TOKEN! });
 
+/* ---------- entry points ---------- */
+export async function GET(req: NextRequest) {
+  /* first-time webhook validation */
+  const challenge = req.nextUrl.searchParams.get("challenge");
+  return new NextResponse(challenge ?? "", {
+    status: 200,
+    headers: { "Content-Type": "text/plain" },
+  });
+}
+
 export async function POST(req: NextRequest) {
+  /* 0. verify HMAC signature */
   const raw = Buffer.from(await req.arrayBuffer());
-
-  // 0. webhook challenge (GET with ?challenge)
-  if (req.method === "GET") {
-    return new Response(req.nextUrl.searchParams.get("challenge") ?? "", {
-      status: 200,
-      headers: { "Content-Type": "text/plain" },
-    });
-  }
-
-  // 1. verify signature
   const sig = req.headers.get("x-dropbox-signature") ?? "";
   const calc = crypto
     .createHmac("sha256", process.env.DROPBOX_APP_SECRET!)
     .update(raw)
     .digest("hex");
   if (sig !== calc)
-    return NextResponse.json({ error: "bad sig" }, { status: 403 });
+    return NextResponse.json({ error: "bad signature" }, { status: 403 });
 
-  // 2. payload → list of user IDs
+  /* 1. parse payload */
   const { list } = JSON.parse(raw.toString()) as {
     list: { delta: { users: string[] } }[];
   };
 
   await Promise.all(
-    list.flatMap((e) => e.delta.users.map((u) => handleUser(u)))
+    list.flatMap(({ delta }) => delta.users.map(processUserDelta))
   );
 
   return NextResponse.json({ ok: true });
 }
 
-/* ===== helpers ===== */
+/* ---------- helpers ---------- */
 
-async function handleUser(teamUserId: string) {
-  // first page
-  let { result } = await dbx.filesListFolder({
-    path: "",
-    recursive: true,
-  });
+/** poll Dropbox delta cursor for that user */
+async function processUserDelta() {
+  let { result } = await dbx.filesListFolder({ path: "", recursive: true });
 
   while (true) {
-    const files = result.entries.filter((e) => e[".tag"] === "file") as any[];
+    const files = result.entries.filter(
+      (e) => e[".tag"] === "file"
+    ) as files.FileMetadataReference[];
+
     await Promise.all(files.map(ingestFile));
 
     if (!result.has_more) break;
@@ -63,57 +68,80 @@ async function handleUser(teamUserId: string) {
   }
 }
 
-async function ingestFile(meta: {
-  id: string;
-  name: string;
-  path_lower: string;
-}) {
+/** download ➜ extract ➜ chunk ➜ embed ➜ Qdrant */
+async function ingestFile(meta: files.FileMetadataReference) {
   const { id: dropboxId, name, path_lower } = meta;
 
-  /* 1. download */
-  const file = await dbx.filesDownload({ path: path_lower });
-  const buf = (file.result as any).fileBinary as Buffer;
+  /* 1. download binary */
+  const dl = await dbx.filesDownload({ path: path_lower! });
 
-  /* 2. extract */
-  let raw = "";
-  if (name.endsWith(".pdf")) raw = (await pdfParse(buf)).text;
-  else if (name.endsWith(".docx"))
-    raw = (await mammoth.extractRawText({ buffer: buf })).value;
-  else raw = buf.toString("utf8");
+  const nodeResult = dl.result as NodeFileDownloadResult;
+  const buf = nodeResult.fileBinary;
 
-  /* 3. save / update Document row */
+  /* 2. extract raw text */
+  const raw = await extractText(name, buf);
+
+  /* 3. persist Document row (public by default) */
   await prisma.document.upsert({
     where: { id: dropboxId },
-    update: { title: name, storagePath: path_lower },
+    update: { title: name, storagePath: path_lower! },
     create: {
       id: dropboxId,
       title: name,
-      storagePath: path_lower,
-      ownerEmail: "partner@example.com", // TODO: infer later
-      rolesAllowed: [],
+      storagePath: path_lower!,
+      ownerEmail: "partner@example.com",
+      rolesAllowed: [], // fill later if you parse ACL from folder name
       projects: [],
     },
   });
 
-  /* 4. chunk + embed */
+  /* 4. chunk + embed + upsert vectors */
   const chunks = chunkText(raw, 1000);
   const embeds = await openai.embeddings.create({
     model: "text-embedding-3-small",
     input: chunks,
   });
 
-  /* 5. upsert to Qdrant */
   await qdrant.upsert("chunks", {
     wait: true,
     points: chunks.map((content, i) => ({
-      id: crypto.randomUUID(), // ✅ valid point ID
+      id: crypto.randomUUID(),
       vector: embeds.data[i].embedding,
       payload: {
         docId: dropboxId,
-        rolesAllowed: [],
-        projects: [],
         offset: i,
+        content, // optional preview
+        /* omit rolesAllowed/projects if public */
       },
     })),
   });
+}
+
+export async function extractText(
+  fileName: string,
+  buf: Buffer
+): Promise<string> {
+  const lower = fileName.toLowerCase();
+
+  if (lower.endsWith(".pdf")) {
+    return (await pdfParse(buf)).text;
+  }
+
+  if (lower.endsWith(".docx")) {
+    return (await mammoth.extractRawText({ buffer: buf })).value;
+  }
+
+  if (lower.endsWith(".pptx")) {
+    const slides = await PPTX.parse(buf); // returns array of slide objects
+    return slides.map((s: { text: string }) => s.text).join("\n\n---\n\n");
+  }
+
+  if (lower.endsWith(".msg")) {
+    const msg = new MSGReader(buf);
+    const { subject, body } = msg.getFileData();
+    return [subject, body].filter(Boolean).join("\n\n");
+  }
+
+  // default: treat as plain-text
+  return buf.toString("utf8");
 }

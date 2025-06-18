@@ -7,7 +7,8 @@ const MIN_SCORE = 0.3;
 export async function semanticSearchWithAcl(
   question: string,
   roles: string[],
-  projects?: string[],
+  projects: string[] | undefined,
+  email: string,
   limit = DEFAULT_LIMIT,
   minScore = MIN_SCORE
 ) {
@@ -19,16 +20,15 @@ export async function semanticSearchWithAcl(
     })
   ).data;
 
-  // 2️⃣ search _all_ points, no filter
+  // 2️⃣ all points (no ACL), with score threshold
   const allResp = await qdrant.query("chunks", {
     query: embedding,
     limit,
     with_payload: true,
     score_threshold: minScore,
   });
-
-  // 3️⃣ search only _accessible_ points
-  const aclFilter = buildAccessFilter(roles, projects);
+  // 3️⃣ only the points the user may see
+  const aclFilter = buildAccessFilter(roles, projects, email);
   const accessResp = await qdrant.query("chunks", {
     query: embedding,
     limit,
@@ -44,55 +44,51 @@ export async function semanticSearchWithAcl(
 }
 
 /**
- * Build a filter like:
- * {
- *   must: [
- *     { should: [ {key:'rolesAllowed', match:{any:['Partner']}}, {key:'rolesAllowed', is_empty:true} ] },
- *     { should: [ {key:'projects', is_empty:true} ] }
- *   ]
- * }
+ * Build a Qdrant boolean filter that returns points if:
+ *  - public (no rolesAllowed & no projects)
+ *  - OR user’s role is in rolesAllowed
+ *  - OR user’s project is in projects
+ *  - OR user’s email is in emailsAllowed
  */
 export const buildAccessFilter = (
-  roles: string[], // e.g. ['Partner']
-  projects?: string[] // undefined ⇒ user has no projects
+  roles: string[],
+  projects?: string[],
+  email?: string
 ) => {
-  // 1️⃣ Public points: both ACL fields empty/missing
+  const branches = [];
 
-  const publicBranch = {
+  // 1️⃣ Public docs: no ACL whatsoever
+  branches.push({
     must: [
       { is_empty: { key: "rolesAllowed" } },
       { is_empty: { key: "projects" } },
+      { is_empty: { key: "emailsAllowed" } },
     ],
-  };
+  });
 
-  // 2️⃣ Scoped points: role OK AND project OK
-  const scopedBranch = {
-    must: [
-      {
-        // rolesAllowed must either include one of the user's roles, or be empty
-        should: [
-          { key: "rolesAllowed", match: { any: roles } },
-          { is_empty: { key: "rolesAllowed" } },
-        ],
-      },
-      {
-        // projects must either include one of the user's projects, or be empty
-        should:
-          projects && projects.length > 0
-            ? [
-                { key: "projects", match: { any: projects } },
-                { is_empty: { key: "projects" } },
-              ]
-            : [
-                // if user has no projects, still allow public (empty) but not scoped
-                { is_empty: { key: "projects" } },
-              ],
-      },
-    ],
-  };
+  // 2️⃣ Role‐based access
+  branches.push({
+    key: "rolesAllowed",
+    match: { any: roles },
+  });
 
-  // Top‐level OR: public OR scoped
+  // 3️⃣ Project‐based access (only if the user has projects)
+  if (projects && projects.length > 0) {
+    branches.push({
+      key: "projects",
+      match: { any: projects },
+    });
+  }
+
+  // 4️⃣ Per‐user override via email
+  if (email) {
+    branches.push({
+      key: "emailsAllowed",
+      match: { any: [email] },
+    });
+  }
+
   return {
-    should: [publicBranch, scopedBranch],
+    should: branches,
   };
 };

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import {
@@ -21,7 +20,6 @@ export function RegisterForm({
   ...props
 }: React.ComponentProps<"div">) {
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -49,7 +47,7 @@ export function RegisterForm({
     await signIn("credentials", {
       email: data.email,
       password: data.password,
-      callbackUrl: "/chat",
+      callbackUrl: "/",
     });
   }
 

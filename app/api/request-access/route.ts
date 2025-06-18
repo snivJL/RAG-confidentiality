@@ -35,8 +35,13 @@ export async function POST(req: NextRequest) {
     });
     const docTitle = doc?.title ?? docId;
 
+    const requestor = session.user.email!;
+    // 1️⃣ record the request
+    const ar = await prisma.accessRequest.create({
+      data: { docId, requestorEmail: requestor, status: "deny" },
+    });
     // 4️⃣ send via Resend
-    const userEmail = session.user.email;
+    const userEmail = session.user.email || "julien.lejay@korefocus.com";
     await resend.emails.send({
       from: FROM_EMAIL,
       to: ["julien.lejay@korefocus.com"],
@@ -44,6 +49,10 @@ export async function POST(req: NextRequest) {
       html: `
         <p>Hi there,</p>
         <p><strong>${userEmail}</strong> has requested access to the document: <em>${docTitle}</em> (ID: ${docId}).</p>
+        <p>
+        <a href="${process.env.APP_URL}/api/access-requests/${ar.id}/approve">Approve</a> |
+        <a href="${process.env.APP_URL}/api/access-requests/${ar.id}/deny">Deny</a>
+        </p>
         <p>You can review and grant access in the admin panel, or reply to this email to follow up.</p>
         <br/>
         <p>Thanks!</p>
