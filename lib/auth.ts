@@ -74,8 +74,12 @@ export const authOptions: NextAuthOptions = {
           prisma.userProject.findMany({ where: { userId: token.sub } }),
         ]);
 
-        session.user.roles = roles.map((r) => r.role);
-        session.user.projects = projects.map((p) => p.projectId);
+        session.user.roles = roles.map(
+          (r: { id: number; userId: string; role: string }) => r.role
+        );
+        session.user.projects = projects.map(
+          (p: { id: number; userId: string; projectId: string }) => p.projectId
+        );
       }
       return session;
     },
