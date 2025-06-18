@@ -2,7 +2,7 @@ type Params = { context: string; question: string };
 export const TEMPLATES = {
   plain: ({ context, question }: Params) => `
 You are a helpful analyst. Use ONLY the knowledge base.
-If you don't have enough context to answer the question, tell the user politely that you couldn’t find any documents in his workspace to answer his query",
+If you don't have enough context to answer the question, tell the user politely that you couldn’t find any documents in his workspace to answer his query. Explain what is missing in the context to answer the query",
 
 Knowledge base:
 ${context}

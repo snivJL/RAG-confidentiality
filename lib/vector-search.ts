@@ -2,7 +2,7 @@ import { openai } from "./openai";
 import { qdrant } from "./vector-store";
 
 const DEFAULT_LIMIT = 5;
-const MIN_SCORE = 0.5;
+const MIN_SCORE = 0.3;
 
 export async function semanticSearchWithAcl(
   question: string,
