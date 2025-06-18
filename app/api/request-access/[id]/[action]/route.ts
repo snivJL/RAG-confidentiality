@@ -1,4 +1,3 @@
-// src/app/api/request-access/[id]/[action]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { qdrant } from "@/lib/vector-store";
@@ -43,14 +42,17 @@ async function processRequest(id: string, action: string) {
   }
 }
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: { id: string; action: string } }
-) {
-  const { id, action } = params;
+export async function GET(req: NextRequest) {
+  // 1. pull id & action from the path
+  const parts = req.nextUrl.pathname.split("/");
+  // ["", "api", "request-access", "<id>", "<action>"]
+  const id = parts[3];
+  const action = parts[4];
+
   if (!["approve", "deny"].includes(action)) {
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
   }
+
   try {
     const status = await processRequest(id, action);
     return NextResponse.json({ status }, { status: 200 });
@@ -60,9 +62,7 @@ export async function GET(
   }
 }
 
-export async function POST(
-  req: NextRequest,
-  ctx: { params: { id: string; action: string } }
-) {
-  return GET(req, ctx);
+export async function POST(req: NextRequest) {
+  // just forward to GET logic
+  return GET(req);
 }

@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { Resend } from "resend";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 const resend = new Resend(process.env.RESEND_API_KEY!);

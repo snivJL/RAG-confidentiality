@@ -1,11 +1,11 @@
 // src/app/api/chat/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { openai } from "@/lib/openai";
 import { semanticSearchWithAcl } from "@/lib/vector-search";
 import { prisma } from "@/lib/prisma";
 import { TEMPLATES } from "@/lib/templates";
+import { authOptions } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   try {
