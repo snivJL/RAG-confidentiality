@@ -1,4 +1,3 @@
-// src/app/api/chat/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { openai } from "@/lib/openai";
@@ -73,7 +72,9 @@ export async function POST(req: NextRequest) {
       }));
 
       const uniqueEmails = Array.from(
-        new Set(docs.map((d) => d.ownerEmail))
+        new Set(
+          docs.map((d: { id: string; ownerEmail: string }) => d.ownerEmail)
+        )
       ).join(", ");
       answer += `
 
