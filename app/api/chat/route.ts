@@ -93,7 +93,7 @@ Please contact **${uniqueEmails}** to request access.`;
     // 9️⃣ Return structured payload
     return NextResponse.json({
       answer,
-      citations: visibleDocs.map((d, i) => ({
+      citations: visibleDocs.map((d: { id: string; title: string }, i) => ({
         n: i + 1,
         title: d.title,
         url: `/api/doc/${d.id}`,
