@@ -45,9 +45,10 @@ export async function GET(req: NextRequest) {
   const userEmail = session.user.email!;
   const allowedByRole =
     rolesAllowed.length === 0 ||
-    rolesAllowed.some((r) => userRoles.includes(r));
+    rolesAllowed.some((r: string) => userRoles.includes(r));
   const allowedByProject =
-    projects.length === 0 || projects.some((p) => userProjects.includes(p));
+    projects.length === 0 ||
+    projects.some((p: string) => userProjects.includes(p));
   const allowedByEmail =
     emailsAllowed.length === 0 || emailsAllowed.includes(userEmail);
 
