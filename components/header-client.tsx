@@ -38,7 +38,7 @@ export function HeaderClient({ session }: HeaderClientProps) {
             />
             <div className="flex flex-col">
               <span className="text-lg font-bold bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
-                Korefocus RAG Demo
+                Korefocus Connected Knowledge Demo
               </span>
               <span className="text-xs text-muted-foreground -mt-1">
                 AI-Powered Search
